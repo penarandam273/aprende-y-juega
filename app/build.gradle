@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.luis.aprendejuega'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.luis.aprendejuega"
+        minSdk 26
+        targetSdk 34
+        // Cada compilacion en GitHub sube el numero (1000 + corrida): siempre mayor que las de la Central, se instala encima.
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1000')
+        versionName "2.5." + (System.getenv('VERSION_CODE') ?: '1000')
+    }
+
+    // Llave fija: así las próximas versiones se instalan encima sin borrar el progreso de los niños.
+    signingConfigs {
+        fija {
+            // la llave NO va en el repositorio: GitHub la arma desde el secreto APRENDEJUEGA_LLAVE
+            storeFile file(System.getenv('LLAVE_RUTA') ?: 'aprendejuega.keystore')
+            storePassword 'aprendejuega'
+            keyAlias 'aprendejuega'
+            keyPassword 'aprendejuega'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.fija
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.fija
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

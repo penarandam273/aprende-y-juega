@@ -1,0 +1,71 @@
+name: Compilar Aprende y Juega
+
+# Cada cambio en main compila la APK firmada con la llave de Aprende y Juega y la publica en Releases.
+# Enlace directo: https://github.com/penarandam273/aprende-y-juega/releases/latest/download/AprendeJuega.apk
+# Se instala ENCIMA de la que dio la Central (misma firma): no se pierde el progreso de los niños.
+# Secreto necesario (Settings → Secrets and variables → Actions):
+#   APRENDEJUEGA_LLAVE → el texto del archivo APRENDEJUEGA_LLAVE.txt (la llave en base64)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Número de versión (siempre mayor que las de la Central)
+        run: echo "VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Armar y revisar la llave
+        env:
+          APRENDEJUEGA_LLAVE: ${{ secrets.APRENDEJUEGA_LLAVE }}
+        run: |
+          if [ -z "$APRENDEJUEGA_LLAVE" ]; then
+            echo "::error::Falta el secreto APRENDEJUEGA_LLAVE (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          F="$RUNNER_TEMP/aprendejuega.keystore"
+          printf '%s' "$APRENDEJUEGA_LLAVE" | tr -d ' \r\n\t' | base64 -d > "$F"
+          H=$(keytool -list -v -keystore "$F" -storepass aprendejuega 2>/dev/null | grep -m1 'SHA256:' | sed 's/.*SHA256: *//; s/://g')
+          if [ "$H" != "6082B8AFE286EAE9B348FD084DF541A196D2F5425572C19E495F03B9A29A2637" ]; then
+            echo "::error::La llave del secreto no es la de Aprende y Juega (huella: ${H:-ninguna})."
+            exit 1
+          fi
+          echo "LLAVE_RUTA=$F" >> "$GITHUB_ENV"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Compilar
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          gradle assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk AprendeJuega.apk
+          "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs AprendeJuega.apk | tee firma.txt
+          grep -qi "SHA-256 digest: 6082b8afe286eae9b348fd084df541a196d2f5425572c19e495f03b9a29a2637" firma.txt || { echo "::error::La APK no quedó con la firma de Aprende y Juega"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AprendeJuega-2.5.${{ env.VERSION_CODE }}
+          path: AprendeJuega.apk
+
+      - name: Publicar la versión (Releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v2.5.$VERSION_CODE" AprendeJuega.apk --title "Aprende y Juega 2.5.$VERSION_CODE" \
+            --notes "Se instala encima de la versión anterior sin perder el progreso. Teacher Owl usa la clave gratis de Gemini que se pone en ⚙️ Ajustes (con el PIN de papá)." --latest
